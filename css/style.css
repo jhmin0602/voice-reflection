@@ -330,3 +330,26 @@ h1 {
 
 #screen-done h1 { color: var(--success); }
 #screen-done p { color: var(--text-dim); margin-bottom: 16px; }
+
+/* ── Skip & End buttons ─────────────────────────────────── */
+.btn-end {
+  background: none;
+  border: 1px solid var(--text-muted);
+  color: var(--text-dim);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.btn-end:active { border-color: var(--accent); color: var(--accent); }
+
+.btn-skip {
+  background: var(--bg-card);
+  border: none;
+  color: var(--text-dim);
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.btn-skip:active { background: var(--bg-input); color: var(--text); }

@@ -48,7 +48,6 @@ const UI = {
     const btnStart = document.getElementById("btn-start");
     let isWeekly = false;
 
-    // Default date to today
     dateInput.value = new Date().toISOString().split("T")[0];
 
     btnDaily.addEventListener("click", () => {
@@ -71,6 +70,8 @@ const UI = {
   updateChatHeader(current, total, topic) {
     document.getElementById("chat-progress").textContent = `${current} / ${total}`;
     document.getElementById("chat-topic").textContent = topic;
+    // Update skip button label: "Finish" on last question
+    document.getElementById("btn-skip").textContent = current === total ? "Finish" : "Next \u203A";
   },
 
   addMessage(text, type) {
@@ -90,14 +91,15 @@ const UI = {
   // ── Mic / text input ──
   _usingTextInput: false,
 
-  initChatInput(onUserInput) {
+  initChatInput(onUserInput, onSkip, onEnd) {
     const micBtn = document.getElementById("btn-mic");
     const micStatus = document.getElementById("mic-status");
-    const micContainer = document.getElementById("mic-container");
     const textContainer = document.getElementById("text-input-container");
     const textInput = document.getElementById("text-input");
     const sendBtn = document.getElementById("btn-send");
     const toggleBtn = document.getElementById("btn-toggle-input");
+    const skipBtn = document.getElementById("btn-skip");
+    const endBtn = document.getElementById("btn-end-session");
 
     this._usingTextInput = false;
     this._onUserInput = onUserInput;
@@ -110,16 +112,24 @@ const UI = {
       toggleBtn.classList.add("hidden");
     }
 
-    // Mic tap handler
+    // Mic button — triple duty: interrupt AI speech / stop recording / start recording
     micBtn.addEventListener("click", async () => {
-      if (!this._inputEnabled) return;
+      // If AI is speaking, interrupt and start listening
+      if (App._speaking) {
+        App.interrupt();
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      // If currently listening, stop and submit
       if (Speech.listening) {
         Speech.stopListening();
         return;
       }
 
+      if (!this._inputEnabled) return;
+
       micBtn.classList.add("listening");
-      micStatus.textContent = "Listening...";
+      micStatus.textContent = "Listening... tap mic when done";
 
       try {
         const transcript = await Speech.listen((interim) => {
@@ -163,6 +173,12 @@ const UI = {
         this._switchToTextInput();
       }
     });
+
+    // Skip / Next question
+    skipBtn.addEventListener("click", () => onSkip());
+
+    // End session early
+    endBtn.addEventListener("click", () => onEnd());
   },
 
   _switchToTextInput() {

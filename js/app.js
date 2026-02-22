@@ -9,6 +9,9 @@ const App = {
   answers: {},
   conversationHistory: [],
   systemPrompt: "",
+  _speaking: false,
+  _interrupted: false,
+  _followUpCount: 0,
 
   init() {
     // ── PIN screen ──
@@ -26,10 +29,12 @@ const App = {
       this.startSession(isWeekly, dateStr);
     });
 
-    // ── Chat input ──
-    UI.initChatInput((text) => {
-      this.handleUserInput(text);
-    });
+    // ── Chat input (user input, skip, end) ──
+    UI.initChatInput(
+      (text) => this.handleUserInput(text),
+      () => this.skipQuestion(),
+      () => this.endSession()
+    );
 
     // Check if already authenticated
     if (sessionStorage.getItem("auth_token")) {
@@ -45,21 +50,20 @@ const App = {
     this.conversationHistory = [];
     this._followUpCount = 0;
 
-    // Compute date and title
+    // Compute date and fallback title
     const d = new Date(dateStr + "T00:00:00");
     if (isWeekly) {
-      // Find Monday of that week
       const day = d.getDay();
       const diff = d.getDate() - day + (day === 0 ? -6 : 1);
       const monday = new Date(d);
       monday.setDate(diff);
       this.dateStr = monday.toISOString().split("T")[0];
       const monthName = monday.toLocaleDateString("en-US", { month: "short" });
-      this.title = `... Week of ${monthName} ${monday.getDate()}`;
+      this.title = `Weekly ${monthName} ${monday.getDate()}`;
     } else {
       this.dateStr = dateStr;
       const monthName = d.toLocaleDateString("en-US", { month: "short" });
-      this.title = `... ${monthName} ${d.getDate()}`;
+      this.title = `Daily ${monthName} ${d.getDate()}`;
     }
 
     const reflectionType = isWeekly ? "weekly" : "daily";
@@ -67,12 +71,49 @@ const App = {
 
     UI.clearMessages();
     UI.showScreen("chat");
-
-    // Backup state to sessionStorage
     this._backupState();
-
-    // Ask first question
     this.askCurrentQuestion();
+  },
+
+  /** Stop AI speech immediately and enable input */
+  interrupt() {
+    if (this._speaking) {
+      this._interrupted = true;
+      this._speaking = false;
+      Speech.cancelSpeak();
+      UI.enableInput();
+    }
+  },
+
+  /** Skip current question and move to next (or finish) */
+  skipQuestion() {
+    Speech.cancelSpeak();
+    Speech.stopListening();
+    this._speaking = false;
+    this._interrupted = false;
+
+    this.currentQuestion++;
+    if (this.currentQuestion < this.questions.length) {
+      this.askCurrentQuestion();
+    } else {
+      this.finishSession();
+    }
+  },
+
+  /** End the session early, saving whatever answers exist */
+  endSession() {
+    Speech.cancelSpeak();
+    Speech.stopListening();
+    this._speaking = false;
+    this._interrupted = false;
+
+    // Need at least one answer to save
+    if (Object.keys(this.answers).length === 0) {
+      UI.showScreen("setup");
+      return;
+    }
+
+    this.finishSession();
   },
 
   async askCurrentQuestion() {
@@ -81,7 +122,7 @@ const App = {
     UI.updateChatHeader(this.currentQuestion + 1, this.questions.length, q.key);
     UI.disableInput();
 
-    // Send ASK command to Claude
+    // Send ASK command
     const userMsg = `ASK: ${q.prompt}`;
     this.conversationHistory.push({ role: "user", content: userMsg });
 
@@ -94,7 +135,6 @@ const App = {
 
     if (!result.ok) {
       UI.addMessage("Error getting response. Tap mic to retry.", "system");
-      // Pop the failed message so we can retry
       this.conversationHistory.pop();
       UI.enableInput();
       return;
@@ -103,10 +143,15 @@ const App = {
     this.conversationHistory.push({ role: "assistant", content: result.message });
     UI.addMessage(result.message, "ai");
 
-    // Speak it
+    // Speak the response (user can interrupt via mic button)
+    this._speaking = true;
+    this._interrupted = false;
     await Speech.speak(result.message);
+    this._speaking = false;
 
-    UI.enableInput();
+    if (!this._interrupted) {
+      UI.enableInput();
+    }
   },
 
   async handleUserInput(text) {
@@ -115,7 +160,7 @@ const App = {
 
     const q = this.questions[this.currentQuestion];
 
-    // First answer for this question?
+    // Store answer
     if (!this.answers[q.key]) {
       this.answers[q.key] = text;
     } else {
@@ -150,10 +195,13 @@ const App = {
 
     if (spokenPart) {
       UI.addMessage(spokenPart, "ai");
+      this._speaking = true;
+      this._interrupted = false;
       await Speech.speak(spokenPart);
+      this._speaking = false;
     }
 
-    if (hasNext || this._followUpCount >= 4) {
+    if (hasNext || this._followUpCount >= 2) {
       // Move to next question
       this.currentQuestion++;
       if (this.currentQuestion < this.questions.length) {
@@ -161,14 +209,13 @@ const App = {
       } else {
         this.finishSession();
       }
-    } else {
-      // Wait for more input
+    } else if (!this._interrupted) {
       UI.enableInput();
     }
   },
 
   async finishSession() {
-    UI.addMessage("That's all the questions. Saving your reflection...", "system");
+    UI.addMessage("Saving your reflection...", "system");
     UI.showScreen("saving");
 
     if (this.isWeekly) {
@@ -198,7 +245,6 @@ const App = {
       UI.initDone(null, () => {
         UI.showScreen("setup");
       });
-      // Show error but data is backed up
       document.querySelector("#screen-done h1").textContent = "Save Error";
       document.querySelector("#screen-done p").textContent =
         "There was an issue saving. Your answers are backed up and you can retry.";

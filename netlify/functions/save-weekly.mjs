@@ -120,6 +120,40 @@ function parseReviewToBlocks(reviewText) {
   return blocks;
 }
 
+/** Generate a short summary title from answers using Gemini */
+async function generateTitle(answers, geminiKey) {
+  try {
+    const summary = Object.entries(answers)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v.slice(0, 200)}`)
+      .join("\n");
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Summarize this weekly reflection in 3-6 words as a short page title. Output ONLY the title, no quotes or extra punctuation.\n\n${summary}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { maxOutputTokens: 20 },
+        }),
+      }
+    );
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
@@ -176,6 +210,9 @@ export async function handler(event) {
     console.error("AI review error:", err);
     return { statusCode: 500, body: JSON.stringify({ error: "AI review error" }) };
   }
+
+  // ── Step 1b: Generate summary title ──
+  const pageTitle = (await generateTitle(answers, geminiKey)) || title;
 
   // ── Step 2: Build Notion page ──
   const children = [];
@@ -270,7 +307,7 @@ export async function handler(event) {
   const payload = {
     parent: { database_id: NOTION_DB_ID },
     properties: {
-      Name: { title: [{ text: { content: title } }] },
+      Name: { title: [{ text: { content: pageTitle } }] },
       Date: { date: { start: dateStr } },
       Type: { select: { name: "Weekly" } },
     },

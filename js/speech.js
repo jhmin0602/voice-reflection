@@ -10,7 +10,7 @@ const Speech = {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       this.recognition = new SpeechRecognition();
-      this.recognition.continuous = false;
+      this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = "en-US";
       this.available = true;
@@ -19,7 +19,7 @@ const Speech = {
   },
 
   /**
-   * Listen for speech input. Returns a promise that resolves with the transcript.
+   * Listen for speech input. User must call stopListening() to finish.
    * onInterim(text) is called with partial results for live feedback.
    */
   listen(onInterim) {
@@ -30,26 +30,26 @@ const Speech = {
       }
 
       let finalTranscript = "";
+      let lastInterim = "";
       this.listening = true;
 
       this.recognition.onresult = (event) => {
-        let interim = "";
+        lastInterim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
             finalTranscript += transcript;
           } else {
-            interim += transcript;
+            lastInterim += transcript;
           }
         }
         if (onInterim) {
-          onInterim(finalTranscript + interim);
+          onInterim(finalTranscript + lastInterim);
         }
       };
 
       this.recognition.onerror = (event) => {
         this.listening = false;
-        // "no-speech" is not a real error, just no input
         if (event.error === "no-speech") {
           resolve("");
         } else {
@@ -59,7 +59,9 @@ const Speech = {
 
       this.recognition.onend = () => {
         this.listening = false;
-        resolve(finalTranscript.trim());
+        // Use final transcript, or fall back to last interim if nothing was finalized
+        const result = finalTranscript || lastInterim;
+        resolve(result.trim());
       };
 
       this.recognition.start();
@@ -85,7 +87,7 @@ const Speech = {
       this.synth.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
+      utterance.rate = 1.2;
       utterance.lang = "en-US";
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();
