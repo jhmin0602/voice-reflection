@@ -27,19 +27,28 @@ const API = {
   },
 
   async chat(conversationHistory, systemPrompt) {
-    const res = await fetch("/.netlify/functions/chat", {
-      method: "POST",
-      headers: this._headers(),
-      body: JSON.stringify({ conversationHistory, systemPrompt }),
-    });
-    if (res.status === 401) {
-      return { ok: false, authExpired: true };
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const res = await fetch("/.netlify/functions/chat", {
+        method: "POST",
+        headers: this._headers(),
+        body: JSON.stringify({ conversationHistory, systemPrompt }),
+      });
+      if (res.status === 401) {
+        return { ok: false, authExpired: true };
+      }
+      const data = await res.json();
+      if (res.ok) {
+        return { ok: true, message: data.message };
+      }
+      // Rate limited (502) — wait and retry
+      if (res.status === 502 && attempt < maxRetries - 1) {
+        const wait = (attempt + 1) * 8000; // 8s, 16s
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      return { ok: false, error: data.error || "Chat request failed" };
     }
-    const data = await res.json();
-    if (res.ok) {
-      return { ok: true, message: data.message };
-    }
-    return { ok: false, error: data.error || "Chat request failed" };
   },
 
   async saveDaily(title, dateStr, answers) {
