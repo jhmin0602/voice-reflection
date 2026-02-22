@@ -423,7 +423,8 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
       const data = await this._notionFetch("/v1/pages", "POST", payload);
 
       if (!data.id) {
-        return { ok: false, error: "Notion API error" };
+        console.error("Notion API response:", data);
+        return { ok: false, error: data.message || "Notion API error" };
       }
 
       // Append overflow blocks (Notion limits 100 per request)

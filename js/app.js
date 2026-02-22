@@ -142,6 +142,7 @@ const App = {
   },
 
   _handleSaveResult(result) {
+    if (!result.ok) console.error("Save failed:", result.error);
     UI.showScreen("done");
     if (result.ok) {
       UI.initDone(result.url, () => {
