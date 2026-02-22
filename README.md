@@ -6,17 +6,31 @@ Built for Android Chrome — works from a phone with no local server needed.
 
 ## Setup
 
-1. Fork/clone this repo
-2. Connect to [Netlify](https://app.netlify.com) (import from Git)
-3. Set environment variables in Netlify dashboard:
+### 1. Deploy the Cloudflare Worker (one-time)
 
-| Variable | Source |
-|----------|--------|
-| `APP_PIN` | Your chosen password |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (free) |
-| `NOTION_API_KEY` | Your Notion integration token |
+1. Go to [dash.cloudflare.com](https://dash.cloudflare.com) → Workers & Pages → Create
+2. Paste the code from `worker/notion-proxy.js` and deploy
+3. Copy the worker URL (e.g., `https://notion-proxy.xxx.workers.dev`)
 
-4. Deploy — no build step needed
+### 2. Enable GitHub Pages
+
+1. Push this repo to GitHub
+2. Settings → Pages → Source: Deploy from branch → Branch: master, folder: / (root)
+3. Site will be live at `https://<user>.github.io/voice-reflection/`
+
+### 3. First-time app setup
+
+On first visit, the app shows a Settings screen. Enter:
+
+| Field | Source |
+|-------|--------|
+| PIN | Your chosen password |
+| Gemini API Key | [Google AI Studio](https://aistudio.google.com/apikey) (free) |
+| Notion API Key | Your Notion integration token |
+| Cloudflare Worker URL | From step 1 above |
+| Notion Database ID | Pre-filled with default |
+
+All keys are stored in your browser's localStorage — never sent to any server except their respective APIs.
 
 ## How It Works
 
@@ -29,12 +43,10 @@ Built for Android Chrome — works from a phone with no local server needed.
 
 - **Frontend**: Vanilla HTML/CSS/JS (no framework, no build)
 - **Voice**: Web Speech API (Chrome)
-- **AI**: Gemini 2.5 Flash via Netlify Functions
-- **Storage**: Notion API
-- **Hosting**: Netlify (static site + serverless functions)
+- **AI**: Gemini 2.5 Flash Lite (called directly from browser)
+- **Storage**: Notion API via Cloudflare Worker CORS proxy
+- **Hosting**: GitHub Pages (free)
 
 ## Changing the Password
 
-1. Netlify dashboard → Site configuration → Environment variables
-2. Edit `APP_PIN`
-3. Deploys → Trigger deploy → Clear cache and deploy
+Open the app → Setup screen → click "Settings" → update the PIN.

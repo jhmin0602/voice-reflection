@@ -13,10 +13,25 @@ const App = {
   _interrupted: false,
   _followUpCount: 0,
 
+  _hasKeys() {
+    return (
+      localStorage.getItem("app_pin") &&
+      localStorage.getItem("gemini_api_key") &&
+      localStorage.getItem("notion_api_key") &&
+      localStorage.getItem("worker_url") &&
+      localStorage.getItem("notion_db_id")
+    );
+  },
+
   init() {
+    // ── Settings screen ──
+    UI.initSettings(() => {
+      UI.showScreen("pin");
+    });
+
     // ── PIN screen ──
-    UI.initPin(async (pin) => {
-      const result = await API.authenticate(pin);
+    UI.initPin((pin) => {
+      const result = API.authenticate(pin);
       if (result.ok) {
         UI.showScreen("setup");
       } else {
@@ -29,6 +44,9 @@ const App = {
       this.startSession(isWeekly, dateStr);
     });
 
+    // ── Settings link on setup screen ──
+    UI.initSettingsLink();
+
     // ── Chat input (user input, skip, end) ──
     UI.initChatInput(
       (text) => this.handleUserInput(text),
@@ -36,9 +54,9 @@ const App = {
       () => this.endSession()
     );
 
-    // Check if already authenticated
-    if (sessionStorage.getItem("auth_token")) {
-      UI.showScreen("setup");
+    // On boot: if no keys → settings, else → PIN
+    if (!this._hasKeys()) {
+      UI.showScreen("settings");
     }
   },
 
@@ -128,11 +146,6 @@ const App = {
 
     const result = await API.chat(this.conversationHistory, this.systemPrompt);
 
-    if (result.authExpired) {
-      this._handleAuthExpired();
-      return;
-    }
-
     if (!result.ok) {
       UI.addMessage("Error getting response. Tap mic to retry.", "system");
       this.conversationHistory.pop();
@@ -175,11 +188,6 @@ const App = {
     this._followUpCount++;
 
     const result = await API.chat(this.conversationHistory, this.systemPrompt);
-
-    if (result.authExpired) {
-      this._handleAuthExpired();
-      return;
-    }
 
     if (!result.ok) {
       UI.addMessage("Error. Tap to retry.", "system");
@@ -230,11 +238,6 @@ const App = {
   },
 
   _handleSaveResult(result) {
-    if (result.authExpired) {
-      this._handleAuthExpired();
-      return;
-    }
-
     UI.showScreen("done");
     if (result.ok) {
       UI.initDone(result.url, () => {
@@ -249,12 +252,6 @@ const App = {
       document.querySelector("#screen-done p").textContent =
         "There was an issue saving. Your answers are backed up and you can retry.";
     }
-  },
-
-  _handleAuthExpired() {
-    sessionStorage.removeItem("auth_token");
-    UI.showScreen("pin");
-    UI.addMessage("Session expired. Please re-enter your PIN.", "system");
   },
 
   _backupState() {

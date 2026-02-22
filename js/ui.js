@@ -2,6 +2,7 @@
 
 const UI = {
   screens: {
+    settings: document.getElementById("screen-settings"),
     pin: document.getElementById("screen-pin"),
     setup: document.getElementById("screen-setup"),
     chat: document.getElementById("screen-chat"),
@@ -38,6 +39,55 @@ const UI = {
     document.getElementById("pin-error").classList.remove("hidden");
     document.getElementById("pin-input").value = "";
     document.getElementById("pin-input").focus();
+  },
+
+  // ── Settings screen ──
+  initSettings(onSave) {
+    const form = document.getElementById("settings-form");
+    const error = document.getElementById("settings-error");
+
+    // Pre-fill from localStorage
+    document.getElementById("settings-pin").value = localStorage.getItem("app_pin") || "";
+    document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || "";
+    document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || "";
+    document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || "";
+    document.getElementById("settings-notion-db").value =
+      localStorage.getItem("notion_db_id") || "2e15059d-f30e-805c-8cbe-f6a5abba6b15";
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const pin = document.getElementById("settings-pin").value.trim();
+      const geminiKey = document.getElementById("settings-gemini-key").value.trim();
+      const notionKey = document.getElementById("settings-notion-key").value.trim();
+      const workerUrl = document.getElementById("settings-worker-url").value.trim();
+      const notionDb = document.getElementById("settings-notion-db").value.trim();
+
+      if (!pin || !geminiKey || !notionKey || !workerUrl || !notionDb) {
+        error.classList.remove("hidden");
+        return;
+      }
+
+      error.classList.add("hidden");
+      localStorage.setItem("app_pin", pin);
+      localStorage.setItem("gemini_api_key", geminiKey);
+      localStorage.setItem("notion_api_key", notionKey);
+      localStorage.setItem("worker_url", workerUrl);
+      localStorage.setItem("notion_db_id", notionDb);
+      onSave();
+    });
+  },
+
+  initSettingsLink() {
+    document.getElementById("btn-open-settings").addEventListener("click", () => {
+      // Re-fill fields with current values
+      document.getElementById("settings-pin").value = localStorage.getItem("app_pin") || "";
+      document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || "";
+      document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || "";
+      document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || "";
+      document.getElementById("settings-notion-db").value =
+        localStorage.getItem("notion_db_id") || "2e15059d-f30e-805c-8cbe-f6a5abba6b15";
+      this.showScreen("settings");
+    });
   },
 
   // ── Setup screen ──

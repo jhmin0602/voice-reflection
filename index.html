@@ -10,6 +10,36 @@
 </head>
 <body>
 
+  <!-- 0. Settings Screen -->
+  <div id="screen-settings" class="screen">
+    <h1>Settings</h1>
+    <p class="subtitle">Configure API keys (stored in browser only)</p>
+    <form id="settings-form" class="settings-form">
+      <div class="settings-group">
+        <label for="settings-pin">PIN / Password</label>
+        <input type="password" id="settings-pin" class="settings-input" placeholder="Choose a password" autocomplete="off">
+      </div>
+      <div class="settings-group">
+        <label for="settings-gemini-key">Gemini API Key</label>
+        <input type="password" id="settings-gemini-key" class="settings-input" placeholder="From aistudio.google.com/apikey">
+      </div>
+      <div class="settings-group">
+        <label for="settings-notion-key">Notion API Key</label>
+        <input type="password" id="settings-notion-key" class="settings-input" placeholder="Notion integration token">
+      </div>
+      <div class="settings-group">
+        <label for="settings-worker-url">Cloudflare Worker URL</label>
+        <input type="url" id="settings-worker-url" class="settings-input" placeholder="https://notion-proxy.xxx.workers.dev">
+      </div>
+      <div class="settings-group">
+        <label for="settings-notion-db">Notion Database ID</label>
+        <input type="text" id="settings-notion-db" class="settings-input" placeholder="Database ID">
+      </div>
+      <button type="submit" class="btn-primary">Save</button>
+    </form>
+    <p id="settings-error" class="error hidden">All fields are required.</p>
+  </div>
+
   <!-- 1. PIN Screen -->
   <div id="screen-pin" class="screen active">
     <h1>Voice Reflection</h1>
@@ -36,6 +66,7 @@
       <input type="date" id="date-input" class="date-input">
     </div>
     <button id="btn-start" class="btn-primary">Start Reflection</button>
+    <button id="btn-open-settings" class="btn-link settings-link">Settings</button>
   </div>
 
   <!-- 3. Chat Screen -->

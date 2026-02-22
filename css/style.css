@@ -46,6 +46,45 @@ h1 {
 .error { color: var(--accent); font-size: 0.9rem; }
 .hidden { display: none !important; }
 
+/* ── Settings Screen ─────────────────────────────────────── */
+.settings-form {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-group {
+  width: 100%;
+}
+.settings-group label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+.settings-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.95rem;
+}
+.settings-input::placeholder { color: var(--text-muted); }
+
+#screen-settings {
+  overflow-y: auto;
+  justify-content: flex-start;
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+
+.settings-link {
+  margin-top: 12px;
+}
+
 /* ── PIN Screen ──────────────────────────────────────────── */
 .pin-form {
   width: 100%;
