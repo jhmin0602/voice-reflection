@@ -1,17 +1,11 @@
-// Main controller — state machine for the reflection session
+// Main controller — card-based reflection session
 
 const App = {
   isWeekly: false,
   dateStr: "",
   title: "",
   questions: [],
-  currentQuestion: 0,
-  answers: {},
-  conversationHistory: [],
-  systemPrompt: "",
-  _speaking: false,
-  _interrupted: false,
-  _followUpCount: 0,
+  answers: {}, // { key: { raw, summary } }
 
   _hasKeys() {
     return (
@@ -47,13 +41,6 @@ const App = {
     // ── Settings link on setup screen ──
     UI.initSettingsLink();
 
-    // ── Chat input (user input, skip, end) ──
-    UI.initChatInput(
-      (text) => this.handleUserInput(text),
-      () => this.skipQuestion(),
-      () => this.endSession()
-    );
-
     // On boot: if no keys → settings, else → PIN
     if (!this._hasKeys()) {
       UI.showScreen("settings");
@@ -63,12 +50,10 @@ const App = {
   startSession(isWeekly, dateStr) {
     this.isWeekly = isWeekly;
     this.questions = isWeekly ? WEEKLY_QUESTIONS : DAILY_QUESTIONS;
-    this.currentQuestion = 0;
     this.answers = {};
-    this.conversationHistory = [];
-    this._followUpCount = 0;
 
     // Compute date and fallback title
+    const emoji = isWeekly ? "\u{1F4C5}" : "\u{1F305}";
     const d = new Date(dateStr + "T00:00:00");
     if (isWeekly) {
       const day = d.getDay();
@@ -77,153 +62,72 @@ const App = {
       monday.setDate(diff);
       this.dateStr = monday.toISOString().split("T")[0];
       const monthName = monday.toLocaleDateString("en-US", { month: "short" });
-      this.title = `Weekly ${monthName} ${monday.getDate()}`;
+      this.title = `${emoji} Weekly ${monthName} ${monday.getDate()}`;
     } else {
       this.dateStr = dateStr;
       const monthName = d.toLocaleDateString("en-US", { month: "short" });
-      this.title = `Daily ${monthName} ${d.getDate()}`;
+      this.title = `${emoji} Daily ${monthName} ${d.getDate()}`;
     }
 
-    const reflectionType = isWeekly ? "weekly" : "daily";
-    this.systemPrompt = SYSTEM_PROMPT.replace("{reflection_type}", reflectionType);
+    const label = isWeekly ? "Weekly Reflection" : "Daily Reflection";
 
-    UI.clearMessages();
-    UI.showScreen("chat");
+    UI.buildCards(this.questions, emoji, label, {
+      onRecord: (i, transcript) => this.handleRecording(i, transcript),
+      onText: (i, text) => this.handleTextInput(i, text),
+      onRedo: (i) => this.handleRedo(i),
+      onSave: () => this.saveAll(),
+    });
+
+    UI.showScreen("cards");
     this._backupState();
-    this.askCurrentQuestion();
   },
 
-  /** Stop AI speech immediately and enable input */
-  interrupt() {
-    if (this._speaking) {
-      this._interrupted = true;
-      this._speaking = false;
-      Speech.cancelSpeak();
-      UI.enableInput();
-    }
-  },
+  async handleRecording(cardIndex, rawTranscript) {
+    const q = this.questions[cardIndex];
+    UI.setCardState(cardIndex, "summarizing");
 
-  /** Skip current question and move to next (or finish) */
-  skipQuestion() {
-    Speech.cancelSpeak();
-    Speech.stopListening();
-    this._speaking = false;
-    this._interrupted = false;
+    const result = await API.summarizeAnswer(q.prompt, rawTranscript);
 
-    this.currentQuestion++;
-    if (this.currentQuestion < this.questions.length) {
-      this.askCurrentQuestion();
+    if (result.ok) {
+      this.answers[q.key] = { raw: rawTranscript, summary: result.summary };
+      UI.setCardState(cardIndex, "done", result.summary);
     } else {
-      this.finishSession();
-    }
-  },
-
-  /** End the session early, saving whatever answers exist */
-  endSession() {
-    Speech.cancelSpeak();
-    Speech.stopListening();
-    this._speaking = false;
-    this._interrupted = false;
-
-    // Need at least one answer to save
-    if (Object.keys(this.answers).length === 0) {
-      UI.showScreen("setup");
-      return;
-    }
-
-    this.finishSession();
-  },
-
-  async askCurrentQuestion() {
-    const q = this.questions[this.currentQuestion];
-    this._followUpCount = 0;
-    UI.updateChatHeader(this.currentQuestion + 1, this.questions.length, q.key);
-    UI.disableInput();
-
-    // Send ASK command
-    const userMsg = `ASK: ${q.prompt}`;
-    this.conversationHistory.push({ role: "user", content: userMsg });
-
-    const result = await API.chat(this.conversationHistory, this.systemPrompt);
-
-    if (!result.ok) {
-      UI.addMessage("Error getting response. Tap mic to retry.", "system");
-      this.conversationHistory.pop();
-      UI.enableInput();
-      return;
-    }
-
-    this.conversationHistory.push({ role: "assistant", content: result.message });
-    UI.addMessage(result.message, "ai");
-
-    // Speak the response (user can interrupt via mic button)
-    this._speaking = true;
-    this._interrupted = false;
-    await Speech.speak(result.message);
-    this._speaking = false;
-
-    if (!this._interrupted) {
-      UI.enableInput();
-    }
-  },
-
-  async handleUserInput(text) {
-    UI.addMessage(text, "user");
-    UI.disableInput();
-
-    const q = this.questions[this.currentQuestion];
-
-    // Store answer
-    if (!this.answers[q.key]) {
-      this.answers[q.key] = text;
-    } else {
-      this.answers[q.key] += " " + text;
+      // On error, show raw transcript as summary
+      this.answers[q.key] = { raw: rawTranscript, summary: rawTranscript };
+      UI.setCardState(cardIndex, "done", rawTranscript);
     }
 
     this._backupState();
-
-    // Send as FOLLOW_UP
-    const userMsg = `FOLLOW_UP: ${q.key}: ${text}`;
-    this.conversationHistory.push({ role: "user", content: userMsg });
-    this._followUpCount++;
-
-    const result = await API.chat(this.conversationHistory, this.systemPrompt);
-
-    if (!result.ok) {
-      UI.addMessage("Error. Tap to retry.", "system");
-      this.conversationHistory.pop();
-      UI.enableInput();
-      return;
-    }
-
-    this.conversationHistory.push({ role: "assistant", content: result.message });
-
-    const hasNext = result.message.includes("NEXT");
-    const spokenPart = result.message.replace("NEXT", "").trim();
-
-    if (spokenPart) {
-      UI.addMessage(spokenPart, "ai");
-      this._speaking = true;
-      this._interrupted = false;
-      await Speech.speak(spokenPart);
-      this._speaking = false;
-    }
-
-    if (hasNext || this._followUpCount >= 2) {
-      // Move to next question
-      this.currentQuestion++;
-      if (this.currentQuestion < this.questions.length) {
-        this.askCurrentQuestion();
-      } else {
-        this.finishSession();
-      }
-    } else if (!this._interrupted) {
-      UI.enableInput();
-    }
   },
 
-  async finishSession() {
-    UI.addMessage("Saving your reflection...", "system");
+  async handleTextInput(cardIndex, text) {
+    const q = this.questions[cardIndex];
+    UI.setCardState(cardIndex, "summarizing");
+
+    const result = await API.summarizeAnswer(q.prompt, text);
+
+    if (result.ok) {
+      this.answers[q.key] = { raw: text, summary: result.summary };
+      UI.setCardState(cardIndex, "done", result.summary);
+    } else {
+      // On error, use raw text
+      this.answers[q.key] = { raw: text, summary: text };
+      UI.setCardState(cardIndex, "done", text);
+    }
+
+    this._backupState();
+  },
+
+  handleRedo(cardIndex) {
+    const q = this.questions[cardIndex];
+    delete this.answers[q.key];
+    UI.setCardState(cardIndex, "idle");
+    this._backupState();
+  },
+
+  async saveAll() {
+    if (Object.keys(this.answers).length === 0) return;
+
     UI.showScreen("saving");
 
     if (this.isWeekly) {

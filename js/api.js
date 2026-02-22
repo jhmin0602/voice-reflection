@@ -66,14 +66,16 @@ const API = {
     return { ok: false, error: "Invalid PIN" };
   },
 
-  async chat(conversationHistory, systemPrompt) {
+  async summarizeAnswer(questionPrompt, rawTranscript) {
     const apiKey = localStorage.getItem("gemini_api_key");
     if (!apiKey) return { ok: false, error: "Gemini API key not configured" };
 
-    const contents = conversationHistory.map((msg) => ({
-      role: msg.role === "assistant" ? "model" : "user",
-      parts: [{ text: msg.content }],
-    }));
+    const prompt = `You are cleaning up a voice transcription for a reflection journal.
+
+Question asked: "${questionPrompt}"
+Raw voice transcript: "${rawTranscript}"
+
+Rewrite the transcript into clear, concise sentences. Fix grammar and filler words, but preserve the original meaning and tone. Output ONLY the cleaned-up text, nothing else.`;
 
     const maxRetries = 3;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -84,21 +86,19 @@ const API = {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              system_instruction: { parts: [{ text: systemPrompt }] },
-              contents,
-              generationConfig: { maxOutputTokens: 1024 },
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 512 },
             }),
           }
         );
 
         if (res.ok) {
           const data = await res.json();
-          const message = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!message) return { ok: false, error: "Empty response from Gemini" };
-          return { ok: true, message };
+          const summary = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!summary) return { ok: false, error: "Empty response from Gemini" };
+          return { ok: true, summary: summary.trim() };
         }
 
-        // Rate limited (429) or server error (502) — wait and retry
         if ((res.status === 429 || res.status === 502) && attempt < maxRetries - 1) {
           await new Promise((r) => setTimeout(r, (attempt + 1) * 8000));
           continue;
@@ -122,7 +122,8 @@ const API = {
     const dbId = localStorage.getItem("notion_db_id");
     if (!notionKey || !dbId) return { ok: false, error: "Notion not configured" };
 
-    const pageTitle = (geminiKey && (await this._generateTitle(answers, geminiKey, "daily"))) || title;
+    const flatAnswers = this._flattenAnswers(answers);
+    const pageTitle = (geminiKey && (await this._generateTitle(flatAnswers, geminiKey, "daily"))) || title;
 
     const children = [
       { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Daily Log" } }] } },
@@ -134,7 +135,7 @@ const API = {
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${i + 1}. ${key}` } }] },
       });
-      const answerText = answers[key] || "";
+      const answerText = flatAnswers[key] || "";
       for (const chunk of this._splitText(answerText)) {
         children.push({
           object: "block",
@@ -154,8 +155,10 @@ const API = {
     if (!notionKey || !dbId) return { ok: false, error: "Notion not configured" };
     if (!geminiKey) return { ok: false, error: "Gemini API key needed for weekly review" };
 
+    const flatAnswers = this._flattenAnswers(answers);
+
     // Generate AI review
-    const answersText = Object.entries(answers)
+    const answersText = Object.entries(flatAnswers)
       .map(([k, v]) => `**${k}:** ${v}`)
       .join("\n");
 
@@ -181,7 +184,7 @@ const API = {
       return { ok: false, error: "AI review network error" };
     }
 
-    const pageTitle = (await this._generateTitle(answers, geminiKey, "weekly")) || title;
+    const pageTitle = (await this._generateTitle(flatAnswers, geminiKey, "weekly")) || title;
 
     // Build Notion blocks
     const children = [];
@@ -199,7 +202,7 @@ const API = {
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${i + 1}. ${key}` } }] },
       });
-      const answerText = answers[key] || "";
+      const answerText = flatAnswers[key] || "";
       const sentences = answerText.split(". ").filter((s) => s.trim());
       for (const sentence of sentences) {
         for (const chunk of this._splitText(sentence.trim())) {
@@ -248,7 +251,7 @@ const API = {
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${labels[i]}. ${key}` } }] },
       });
-      const answerText = answers[key] || "";
+      const answerText = flatAnswers[key] || "";
       for (const chunk of this._splitText(answerText)) {
         children.push({
           object: "block",
@@ -270,7 +273,25 @@ const API = {
     return this._createNotionPage(dbId, notionKey, pageTitle, dateStr, "Weekly", children);
   },
 
+  /** Flatten answers from { key: { raw, summary } } to { key: string } */
+  _flattenAnswers(answers) {
+    const flat = {};
+    for (const [key, val] of Object.entries(answers)) {
+      if (typeof val === "string") {
+        flat[key] = val;
+      } else if (val && val.summary) {
+        flat[key] = val.summary;
+      } else if (val && val.raw) {
+        flat[key] = val.raw;
+      } else {
+        flat[key] = "";
+      }
+    }
+    return flat;
+  },
+
   async _generateTitle(answers, geminiKey, type) {
+    const emoji = type === "weekly" ? "\u{1F4C5}" : "\u{1F305}";
     try {
       const summary = Object.entries(answers)
         .filter(([, v]) => v)
@@ -297,7 +318,8 @@ const API = {
         }
       );
       const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+      const title = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      return title ? `${emoji} ${title}` : null;
     } catch (e) {
       return null;
     }

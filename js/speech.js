@@ -1,8 +1,7 @@
-// Web Speech API wrapper — STT + TTS
+// Web Speech API wrapper — STT only
 
 const Speech = {
   recognition: null,
-  synth: window.speechSynthesis,
   available: false,
   listening: false,
 
@@ -59,7 +58,6 @@ const Speech = {
 
       this.recognition.onend = () => {
         this.listening = false;
-        // Use final transcript, or fall back to last interim if nothing was finalized
         const result = finalTranscript || lastInterim;
         resolve(result.trim());
       };
@@ -71,33 +69,6 @@ const Speech = {
   stopListening() {
     if (this.recognition && this.listening) {
       this.recognition.stop();
-    }
-  },
-
-  /**
-   * Speak text aloud using SpeechSynthesis. Returns a promise.
-   */
-  speak(text) {
-    return new Promise((resolve) => {
-      if (!this.synth) {
-        resolve();
-        return;
-      }
-      // Cancel any ongoing speech
-      this.synth.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.2;
-      utterance.lang = "en-US";
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-      this.synth.speak(utterance);
-    });
-  },
-
-  cancelSpeak() {
-    if (this.synth) {
-      this.synth.cancel();
     }
   },
 };
