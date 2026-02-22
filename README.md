@@ -29,7 +29,7 @@ Built for Android Chrome — works from a phone with no local server needed.
 
 - **Frontend**: Vanilla HTML/CSS/JS (no framework, no build)
 - **Voice**: Web Speech API (Chrome)
-- **AI**: Gemini 2.0 Flash via Netlify Functions
+- **AI**: Gemini 2.5 Flash via Netlify Functions
 - **Storage**: Notion API
 - **Hosting**: Netlify (static site + serverless functions)
 

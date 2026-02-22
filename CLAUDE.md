@@ -6,7 +6,7 @@ Static web app hosted on Netlify. No build step — vanilla HTML/CSS/JS + server
 
 - **Frontend**: `index.html`, `css/`, `js/` — single-page app with 5 screens (PIN → Setup → Chat → Saving → Done)
 - **Backend**: `netlify/functions/` — 4 serverless functions (auth, chat, save-daily, save-weekly)
-- **AI**: Gemini 2.0 Flash (free tier) for conversation coaching + weekly AI review generation
+- **AI**: Gemini 2.5 Flash (free tier) for conversation coaching + weekly AI review generation
 - **Storage**: Notion database `2e15059d-f30e-805c-8cbe-f6a5abba6b15`
 - **Voice**: Web Speech API (SpeechRecognition + SpeechSynthesis), text fallback available
 
