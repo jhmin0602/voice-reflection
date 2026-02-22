@@ -131,9 +131,9 @@ export async function handler(event) {
 
   const { title, dateStr, answers } = JSON.parse(event.body || "{}");
   const notionKey = process.env.NOTION_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
 
-  if (!notionKey || !anthropicKey) {
+  if (!notionKey || !geminiKey) {
     return { statusCode: 500, body: JSON.stringify({ error: "Keys not configured" }) };
   }
 
@@ -144,32 +144,34 @@ export async function handler(event) {
 
   let aiReview;
   try {
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 3000,
-        system: AI_REVIEW_SYSTEM,
-        messages: [
-          {
-            role: "user",
-            content: `Here are my weekly reflection answers:\n\n${answersText}`,
-          },
-        ],
-      }),
-    });
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: AI_REVIEW_SYSTEM }] },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `Here are my weekly reflection answers:\n\n${answersText}` }],
+            },
+          ],
+          generationConfig: { maxOutputTokens: 3000 },
+        }),
+      }
+    );
 
-    const claudeData = await claudeRes.json();
-    if (!claudeRes.ok) {
-      console.error("Claude API error:", claudeData);
+    const geminiData = await geminiRes.json();
+    if (!geminiRes.ok) {
+      console.error("Gemini API error:", geminiData);
       return { statusCode: 502, body: JSON.stringify({ error: "AI review generation failed" }) };
     }
-    aiReview = claudeData.content[0].text;
+    aiReview = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiReview) {
+      console.error("Empty Gemini response:", geminiData);
+      return { statusCode: 502, body: JSON.stringify({ error: "Empty AI review response" }) };
+    }
   } catch (err) {
     console.error("AI review error:", err);
     return { statusCode: 500, body: JSON.stringify({ error: "AI review error" }) };
