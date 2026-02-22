@@ -163,25 +163,39 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
       .join("\n");
 
     let aiReview;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: AI_REVIEW_SYSTEM }] },
-            contents: [{ role: "user", parts: [{ text: `Here are my weekly reflection answers:\n\n${answersText}` }] }],
-            generationConfig: { maxOutputTokens: 3000 },
-          }),
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: AI_REVIEW_SYSTEM }] },
+              contents: [{ role: "user", parts: [{ text: `Here are my weekly reflection answers:\n\n${answersText}` }] }],
+              generationConfig: { maxOutputTokens: 3000 },
+            }),
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          aiReview = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!aiReview) return { ok: false, error: "Empty AI review response" };
+          break;
         }
-      );
-      const data = await res.json();
-      if (!res.ok) return { ok: false, error: "AI review generation failed" };
-      aiReview = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!aiReview) return { ok: false, error: "Empty AI review response" };
-    } catch (e) {
-      return { ok: false, error: "AI review network error" };
+        if ((res.status === 429 || res.status === 502) && attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 8000));
+          continue;
+        }
+        return { ok: false, error: "AI review generation failed" };
+      } catch (e) {
+        if (attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 4000));
+          continue;
+        }
+        return { ok: false, error: "AI review network error" };
+      }
     }
 
     const pageTitle = (await this._generateTitle(flatAnswers, geminiKey, "weekly")) || title;

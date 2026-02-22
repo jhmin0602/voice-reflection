@@ -155,7 +155,7 @@ const App = {
       });
       document.querySelector("#screen-done h1").textContent = "Save Error";
       document.querySelector("#screen-done p").textContent =
-        "There was an issue saving. Your answers are backed up and you can retry.";
+        `Error: ${result.error || "Unknown error"}. Your answers are backed up.`;
     }
   },
 
