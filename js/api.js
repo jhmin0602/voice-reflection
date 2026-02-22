@@ -66,49 +66,38 @@ const API = {
     return { ok: false, error: "Invalid PIN" };
   },
 
-  async summarizeAnswer(questionPrompt, rawTranscript) {
+  /**
+   * Single Gemini call with retry on 429. Waits 20s then retries once.
+   * Returns { ok, text } or { ok: false, error }.
+   */
+  async _gemini(body) {
     const apiKey = localStorage.getItem("gemini_api_key");
     if (!apiKey) return { ok: false, error: "Gemini API key not configured" };
 
-    const prompt = `You are cleaning up a voice transcription for a reflection journal.
-
-Question asked: "${questionPrompt}"
-Raw voice transcript: "${rawTranscript}"
-
-Rewrite the transcript into clear, concise sentences. Fix grammar and filler words, but preserve the original meaning and tone. Output ONLY the cleaned-up text, nothing else.`;
-
-    const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ role: "user", parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 512 },
-            }),
+            body: JSON.stringify(body),
           }
         );
-
         if (res.ok) {
           const data = await res.json();
-          const summary = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!summary) return { ok: false, error: "Empty response from Gemini" };
-          return { ok: true, summary: summary.trim() };
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          return { ok: true, text: text?.trim() || "" };
         }
-
-        if ((res.status === 429 || res.status === 502) && attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, (attempt + 1) * 8000));
+        if ((res.status === 429 || res.status === 502) && attempt === 0) {
+          await new Promise((r) => setTimeout(r, 20000));
           continue;
         }
-
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error?.message || "Gemini API error" };
+        return { ok: false, error: err.error?.message || `Gemini error ${res.status}` };
       } catch (e) {
-        if (attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, (attempt + 1) * 4000));
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 10000));
           continue;
         }
         return { ok: false, error: "Network error" };
@@ -116,14 +105,55 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
     }
   },
 
+  /**
+   * Batch cleanup: one Gemini call to clean up all raw voice transcripts.
+   * @param {Object} answers - { key: "raw text", ... }
+   * @returns { ok, answers: { key: "cleaned text", ... } }
+   */
+  async batchCleanup(answers) {
+    const entries = Object.entries(answers).filter(([, v]) => v);
+    if (entries.length === 0) return { ok: true, answers };
+
+    const numbered = entries
+      .map(([key, val], i) => `[${i + 1}] ${key}\n${val}`)
+      .join("\n\n");
+
+    const prompt = `Clean up these voice transcriptions for a reflection journal. Fix grammar and filler words, but preserve the original meaning and tone. Return each answer in the same numbered format.
+
+${numbered}`;
+
+    const result = await this._gemini({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 2048 },
+    });
+
+    if (!result.ok || !result.text) return { ok: false, error: result.error };
+
+    // Parse numbered responses back into object
+    const cleaned = { ...answers };
+    const sections = result.text.split(/\[\d+\]\s*/);
+    sections.shift(); // remove empty first element
+
+    entries.forEach(([key], i) => {
+      if (sections[i]) {
+        // Remove the key label if the model echoed it back
+        let text = sections[i].trim();
+        if (text.toLowerCase().startsWith(key.toLowerCase())) {
+          text = text.slice(key.length).replace(/^\s*\n/, "").trim();
+        }
+        cleaned[key] = text || answers[key];
+      }
+    });
+
+    return { ok: true, answers: cleaned };
+  },
+
   async saveDaily(title, dateStr, answers) {
-    const geminiKey = localStorage.getItem("gemini_api_key");
     const notionKey = localStorage.getItem("notion_api_key");
     const dbId = localStorage.getItem("notion_db_id");
     if (!notionKey || !dbId) return { ok: false, error: "Notion not configured" };
 
-    const flatAnswers = this._flattenAnswers(answers);
-    const pageTitle = (geminiKey && (await this._generateTitle(flatAnswers, geminiKey, "daily"))) || title;
+    const pageTitle = (await this._generateTitle(answers, "daily")) || title;
 
     const children = [
       { object: "block", type: "heading_2", heading_2: { rich_text: [{ text: { content: "Daily Log" } }] } },
@@ -135,7 +165,7 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${i + 1}. ${key}` } }] },
       });
-      const answerText = flatAnswers[key] || "";
+      const answerText = answers[key] || "";
       for (const chunk of this._splitText(answerText)) {
         children.push({
           object: "block",
@@ -149,61 +179,31 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
   },
 
   async saveWeekly(title, dateStr, answers) {
-    const geminiKey = localStorage.getItem("gemini_api_key");
     const notionKey = localStorage.getItem("notion_api_key");
     const dbId = localStorage.getItem("notion_db_id");
     if (!notionKey || !dbId) return { ok: false, error: "Notion not configured" };
-    if (!geminiKey) return { ok: false, error: "Gemini API key needed for weekly review" };
-
-    const flatAnswers = this._flattenAnswers(answers);
 
     // Generate AI review
-    const answersText = Object.entries(flatAnswers)
+    const answersText = Object.entries(answers)
       .map(([k, v]) => `**${k}:** ${v}`)
       .join("\n");
 
-    let aiReview;
-    const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_instruction: { parts: [{ text: AI_REVIEW_SYSTEM }] },
-              contents: [{ role: "user", parts: [{ text: `Here are my weekly reflection answers:\n\n${answersText}` }] }],
-              generationConfig: { maxOutputTokens: 3000 },
-            }),
-          }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          aiReview = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!aiReview) return { ok: false, error: "Empty AI review response" };
-          break;
-        }
-        if ((res.status === 429 || res.status === 502) && attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, (attempt + 1) * 8000));
-          continue;
-        }
-        return { ok: false, error: "AI review generation failed" };
-      } catch (e) {
-        if (attempt < maxRetries - 1) {
-          await new Promise((r) => setTimeout(r, (attempt + 1) * 4000));
-          continue;
-        }
-        return { ok: false, error: "AI review network error" };
-      }
-    }
+    const reviewResult = await this._gemini({
+      system_instruction: { parts: [{ text: AI_REVIEW_SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: `Here are my weekly reflection answers:\n\n${answersText}` }] }],
+      generationConfig: { maxOutputTokens: 3000 },
+    });
 
-    const pageTitle = (await this._generateTitle(flatAnswers, geminiKey, "weekly")) || title;
+    if (!reviewResult.ok || !reviewResult.text) {
+      return { ok: false, error: reviewResult.error || "AI review generation failed" };
+    }
+    const aiReview = reviewResult.text;
+
+    const pageTitle = (await this._generateTitle(answers, "weekly")) || title;
 
     // Build Notion blocks
     const children = [];
 
-    // Check-in section (first 5 questions)
     children.push({
       object: "block",
       type: "heading_2",
@@ -216,7 +216,7 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${i + 1}. ${key}` } }] },
       });
-      const answerText = flatAnswers[key] || "";
+      const answerText = answers[key] || "";
       const sentences = answerText.split(". ").filter((s) => s.trim());
       for (const sentence of sentences) {
         for (const chunk of this._splitText(sentence.trim())) {
@@ -231,7 +231,6 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
 
     children.push({ object: "block", type: "divider", divider: {} });
 
-    // Context
     children.push({
       object: "block",
       type: "heading_3",
@@ -251,7 +250,6 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
 
     children.push({ object: "block", type: "divider", divider: {} });
 
-    // Strategic tasks (questions 6-9)
     children.push({
       object: "block",
       type: "heading_3",
@@ -265,7 +263,7 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
         type: "heading_3",
         heading_3: { rich_text: [{ text: { content: `${labels[i]}. ${key}` } }] },
       });
-      const answerText = flatAnswers[key] || "";
+      const answerText = answers[key] || "";
       for (const chunk of this._splitText(answerText)) {
         children.push({
           object: "block",
@@ -275,7 +273,6 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
       }
     });
 
-    // AI Review section
     children.push({ object: "block", type: "divider", divider: {} });
     children.push({
       object: "block",
@@ -287,56 +284,28 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
     return this._createNotionPage(dbId, notionKey, pageTitle, dateStr, "Weekly", children);
   },
 
-  /** Flatten answers from { key: { raw, summary } } to { key: string } */
-  _flattenAnswers(answers) {
-    const flat = {};
-    for (const [key, val] of Object.entries(answers)) {
-      if (typeof val === "string") {
-        flat[key] = val;
-      } else if (val && val.summary) {
-        flat[key] = val.summary;
-      } else if (val && val.raw) {
-        flat[key] = val.raw;
-      } else {
-        flat[key] = "";
-      }
-    }
-    return flat;
-  },
-
-  async _generateTitle(answers, geminiKey, type) {
+  async _generateTitle(answers, type) {
     const emoji = type === "weekly" ? "\u{1F4C5}" : "\u{1F305}";
-    try {
-      const summary = Object.entries(answers)
-        .filter(([, v]) => v)
-        .map(([k, v]) => `${k}: ${v.slice(0, 200)}`)
-        .join("\n");
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey}`,
+    const summary = Object.entries(answers)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v.slice(0, 200)}`)
+      .join("\n");
+
+    const result = await this._gemini({
+      contents: [
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `Summarize this ${type} reflection in 3-6 words as a short page title. Output ONLY the title, no quotes or extra punctuation.\n\n${summary}`,
-                  },
-                ],
-              },
-            ],
-            generationConfig: { maxOutputTokens: 20 },
-          }),
-        }
-      );
-      const data = await res.json();
-      const title = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      return title ? `${emoji} ${title}` : null;
-    } catch (e) {
-      return null;
-    }
+          role: "user",
+          parts: [
+            {
+              text: `Summarize this ${type} reflection in 3-6 words as a short page title. Output ONLY the title, no quotes or extra punctuation.\n\n${summary}`,
+            },
+          ],
+        },
+      ],
+      generationConfig: { maxOutputTokens: 20 },
+    });
+
+    return result.ok && result.text ? `${emoji} ${result.text}` : null;
   },
 
   _splitText(text, maxLen = 1900) {
@@ -441,7 +410,6 @@ Rewrite the transcript into clear, concise sentences. Fix grammar and filler wor
         return { ok: false, error: data.message || "Notion API error" };
       }
 
-      // Append overflow blocks (Notion limits 100 per request)
       if (children.length > 100) {
         await this._notionFetch(`/v1/blocks/${data.id}/children`, "PATCH", {
           children: children.slice(100, 200),

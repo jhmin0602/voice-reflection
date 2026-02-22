@@ -5,7 +5,7 @@ const App = {
   dateStr: "",
   title: "",
   questions: [],
-  answers: {}, // { key: { raw, summary } }
+  answers: {}, // { key: "raw text" }
 
   _hasKeys() {
     return (
@@ -18,12 +18,10 @@ const App = {
   },
 
   init() {
-    // ── Settings screen ──
     UI.initSettings(() => {
       UI.showScreen("pin");
     });
 
-    // ── PIN screen ──
     UI.initPin((pin) => {
       const result = API.authenticate(pin);
       if (result.ok) {
@@ -33,15 +31,12 @@ const App = {
       }
     });
 
-    // ── Setup screen ──
     UI.initSetup((isWeekly, dateStr) => {
       this.startSession(isWeekly, dateStr);
     });
 
-    // ── Settings link on setup screen ──
     UI.initSettingsLink();
 
-    // On boot: if no keys → settings, else → PIN
     if (!this._hasKeys()) {
       UI.showScreen("settings");
     }
@@ -52,7 +47,6 @@ const App = {
     this.questions = isWeekly ? WEEKLY_QUESTIONS : DAILY_QUESTIONS;
     this.answers = {};
 
-    // Compute date and fallback title
     const emoji = isWeekly ? "\u{1F4C5}" : "\u{1F305}";
     const d = new Date(dateStr + "T00:00:00");
     if (isWeekly) {
@@ -82,39 +76,17 @@ const App = {
     this._backupState();
   },
 
-  async handleRecording(cardIndex, rawTranscript) {
+  handleRecording(cardIndex, rawTranscript) {
     const q = this.questions[cardIndex];
-    UI.setCardState(cardIndex, "summarizing");
-
-    const result = await API.summarizeAnswer(q.prompt, rawTranscript);
-
-    if (result.ok) {
-      this.answers[q.key] = { raw: rawTranscript, summary: result.summary };
-      UI.setCardState(cardIndex, "done", result.summary);
-    } else {
-      // On error, show raw transcript as summary
-      this.answers[q.key] = { raw: rawTranscript, summary: rawTranscript };
-      UI.setCardState(cardIndex, "done", rawTranscript);
-    }
-
+    this.answers[q.key] = rawTranscript;
+    UI.setCardState(cardIndex, "done", rawTranscript);
     this._backupState();
   },
 
-  async handleTextInput(cardIndex, text) {
+  handleTextInput(cardIndex, text) {
     const q = this.questions[cardIndex];
-    UI.setCardState(cardIndex, "summarizing");
-
-    const result = await API.summarizeAnswer(q.prompt, text);
-
-    if (result.ok) {
-      this.answers[q.key] = { raw: text, summary: result.summary };
-      UI.setCardState(cardIndex, "done", result.summary);
-    } else {
-      // On error, use raw text
-      this.answers[q.key] = { raw: text, summary: text };
-      UI.setCardState(cardIndex, "done", text);
-    }
-
+    this.answers[q.key] = text;
+    UI.setCardState(cardIndex, "done", text);
     this._backupState();
   },
 
@@ -129,14 +101,19 @@ const App = {
     if (Object.keys(this.answers).length === 0) return;
 
     UI.showScreen("saving");
+    UI.setSavingDetail("Cleaning up answers...");
+
+    // Batch cleanup: one Gemini call to clean all raw text
+    const cleaned = await API.batchCleanup(this.answers);
+    const finalAnswers = cleaned.ok ? cleaned.answers : this.answers;
 
     if (this.isWeekly) {
       UI.setSavingDetail("Generating AI review and saving to Notion...");
-      const result = await API.saveWeekly(this.title, this.dateStr, this.answers);
+      const result = await API.saveWeekly(this.title, this.dateStr, finalAnswers);
       this._handleSaveResult(result);
     } else {
       UI.setSavingDetail("Creating Notion page...");
-      const result = await API.saveDaily(this.title, this.dateStr, this.answers);
+      const result = await API.saveDaily(this.title, this.dateStr, finalAnswers);
       this._handleSaveResult(result);
     }
   },
