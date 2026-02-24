@@ -17,7 +17,19 @@ const App = {
     );
   },
 
+  // Auto-populate localStorage from CONFIG defaults (for new devices)
+  _applyConfigDefaults() {
+    const keys = ["gemini_api_key", "notion_api_key", "worker_url", "notion_db_id"];
+    for (const key of keys) {
+      if (!localStorage.getItem(key) && CONFIG[key]) {
+        localStorage.setItem(key, CONFIG[key]);
+      }
+    }
+  },
+
   init() {
+    this._applyConfigDefaults();
+
     UI.initSettings(() => {
       UI.showScreen("pin");
     });

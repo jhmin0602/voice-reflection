@@ -52,11 +52,11 @@ const UI = {
 
     // Pre-fill from localStorage
     document.getElementById("settings-pin").value = localStorage.getItem("app_pin") || "";
-    document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || "";
-    document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || "";
-    document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || "";
+    document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || CONFIG.gemini_api_key || "";
+    document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || CONFIG.notion_api_key || "";
+    document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || CONFIG.worker_url || "";
     document.getElementById("settings-notion-db").value =
-      localStorage.getItem("notion_db_id") || "2e15059d-f30e-805c-8cbe-f6a5abba6b15";
+      localStorage.getItem("notion_db_id") || CONFIG.notion_db_id || "";
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -84,11 +84,11 @@ const UI = {
   initSettingsLink() {
     document.getElementById("btn-open-settings").addEventListener("click", () => {
       document.getElementById("settings-pin").value = localStorage.getItem("app_pin") || "";
-      document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || "";
-      document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || "";
-      document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || "";
+      document.getElementById("settings-gemini-key").value = localStorage.getItem("gemini_api_key") || CONFIG.gemini_api_key || "";
+      document.getElementById("settings-notion-key").value = localStorage.getItem("notion_api_key") || CONFIG.notion_api_key || "";
+      document.getElementById("settings-worker-url").value = localStorage.getItem("worker_url") || CONFIG.worker_url || "";
       document.getElementById("settings-notion-db").value =
-        localStorage.getItem("notion_db_id") || "2e15059d-f30e-805c-8cbe-f6a5abba6b15";
+        localStorage.getItem("notion_db_id") || CONFIG.notion_db_id || "";
       this.showScreen("settings");
     });
   },
