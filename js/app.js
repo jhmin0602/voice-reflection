@@ -7,18 +7,15 @@ const App = {
   questions: [],
   answers: {}, // { key: "raw text" }
 
-  _hasKeys() {
-    return (
-      localStorage.getItem("app_pin") &&
-      localStorage.getItem("gemini_api_key") &&
-      localStorage.getItem("notion_api_key") &&
-      localStorage.getItem("worker_url") &&
-      localStorage.getItem("notion_db_id")
-    );
+  // Check if all API keys are available (in localStorage or CONFIG)
+  _hasApiKeys() {
+    const keys = ["gemini_api_key", "notion_api_key", "worker_url", "notion_db_id"];
+    return keys.every((k) => localStorage.getItem(k) || (typeof CONFIG !== "undefined" && CONFIG[k]));
   },
 
   // Auto-populate localStorage from CONFIG defaults (for new devices)
   _applyConfigDefaults() {
+    if (typeof CONFIG === "undefined") return;
     const keys = ["gemini_api_key", "notion_api_key", "worker_url", "notion_db_id"];
     for (const key of keys) {
       if (!localStorage.getItem(key) && CONFIG[key]) {
@@ -49,7 +46,10 @@ const App = {
 
     UI.initSettingsLink();
 
-    if (!this._hasKeys()) {
+    // Go straight to PIN if API keys are available; only show settings if truly missing
+    if (this._hasApiKeys()) {
+      UI.showScreen("pin");
+    } else {
       UI.showScreen("settings");
     }
   },
