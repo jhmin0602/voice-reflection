@@ -66,9 +66,11 @@ const App = {
       const diff = d.getDate() - day + (day === 0 ? -6 : 1);
       const monday = new Date(d);
       monday.setDate(diff);
-      this.dateStr = monday.toISOString().split("T")[0];
-      const monthName = monday.toLocaleDateString("en-US", { month: "short" });
-      this.title = `${emoji} Weekly ${monthName} ${monday.getDate()}`;
+      this.dateStr = dateStr; // actual creation date, not Monday
+      const monthName = monday.toLocaleDateString("en-US", { month: "long" });
+      const dayNum = monday.getDate();
+      const ord = [, "st", "nd", "rd"][dayNum % 100 >> 3 ^ 1 && dayNum % 10] || "th";
+      this.title = `${emoji} Week of ${monthName} ${dayNum}${ord}`;
     } else {
       this.dateStr = dateStr;
       const monthName = d.toLocaleDateString("en-US", { month: "short" });

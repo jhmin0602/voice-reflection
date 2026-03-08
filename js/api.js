@@ -199,7 +199,7 @@ ${numbered}`;
     }
     const aiReview = reviewResult.text;
 
-    const pageTitle = (await this._generateTitle(answers, "weekly")) || title;
+    const pageTitle = title;
 
     // Build Notion blocks
     const children = [];
